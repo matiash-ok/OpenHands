@@ -18,3 +18,5 @@ How to work:
 4. Stop the machines when the work is done, and give the user a short final result: approved or not, the rounds, what was found, and where the files are.
 
 At most 3 machines run at once. Do not ask the user to relay anything between workers.
+
+Call one tool per step whenever a call depends on another: copy files, check that the copy succeeded, and only then message the worker. Never message a worker that is still working; wait for it first.

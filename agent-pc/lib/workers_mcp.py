@@ -350,6 +350,18 @@ def message_worker(worker: str, message: str) -> str:
     working on it at once; call wait_pc_worker for the answer.
     """
     worker_id, record = _worker(worker)
+    status = _status(worker_id)
+    if status == "running":
+        raise WorkerError(
+            f"{record['name']} is still working. Call wait_pc_worker until it "
+            "finishes, then send the message: a message that lands mid-turn "
+            "can break the worker."
+        )
+    if status in ("error", "stuck"):
+        raise WorkerError(
+            f"{record['name']} is in state {status!r} and cannot continue. "
+            "Stop it and start a new worker with the full context."
+        )
     _request(
         "POST",
         f"/api/conversations/{worker_id}/events",
@@ -409,8 +421,13 @@ def stop_worker(worker: str) -> str:
     /workspace are kept. Stop workers you no longer need.
     """
     worker_id, record = _worker(worker)
-    _request("DELETE", f"/api/conversations/{worker_id}/runtime", timeout=120.0)
-    return f"Stopped {record['name']}'s machine."
+    for _ in range(3):
+        _request("DELETE", f"/api/conversations/{worker_id}/runtime", timeout=120.0)
+        # A message still being delivered can bring the machine back.
+        time.sleep(2)
+        if not _machine_running(worker_id):
+            return f"Stopped {record['name']}'s machine."
+    raise WorkerError(f"{record['name']}'s machine is still on after three tries.")
 
 
 def list_workers() -> str:
