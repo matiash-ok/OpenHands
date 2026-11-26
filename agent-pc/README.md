@@ -143,8 +143,8 @@ To add a skill, put its folder (with a `SKILL.md`) in `skills/` and run
 
 ## Status
 
-Verified end to end on one host: a coordinator drove a coder and a reviewer
-through two rounds without human relaying. Not yet exercised: the `reviewer`
-profile with a review skill inside a micro-VM, the phone sharing with a real
-device, and a full coordinator run with `claude-code` workers (a single
-Claude Code conversation in a micro-VM does work).
+Verified on one host: a coordinator drove a `claude-code` coder and a
+`reviewer` to approval in two rounds without human relaying; a worker in a
+micro-VM read a real phone over USB sharing (model, displays, fold state,
+screenshot). Not yet exercised: building and installing an app on the phone,
+wireless debugging, and `interrupt_pc_worker` called by a coordinator.

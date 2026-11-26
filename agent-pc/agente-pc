@@ -120,9 +120,10 @@ case "${1:-start}" in
         # Por Wi-Fi: "telefono on IP:PUERTO" (lo que muestra Depuracion inalambrica).
         [ -z "${3:-}" ] || asu adb connect "$3"
         for _ in 1 2 3 4 5 6; do asu adb devices -l 2>/dev/null | grep -q " device " && break; sleep 1; done
-        asu adb devices -l
-        echo "Lista vacia: activa Depuracion inalambrica en el telefono y corre: sudo agente-pc telefono on IP:PUERTO"
-        echo "unauthorized: desbloquea el telefono y acepta la depuracion." ;;
+        out=$(asu adb devices -l); echo "$out"
+        if echo "$out" | grep -q " device "; then echo "Telefono compartido con los agentes."
+        elif echo "$out" | grep -qE "unauthorized|offline"; then echo "El telefono no autorizo: desbloquealo y acepta la depuracion."
+        else echo "No hay telefono. Por USB: conectalo. Por Wi-Fi: sudo agente-pc telefono on IP:PUERTO"; fi ;;
       off)
         rm -f "$ROOT/telefono.on"; systemctl stop agente-pc-adb 2>/dev/null || true
         firewall_on; echo "Telefono ya no compartido." ;;

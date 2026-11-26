@@ -15,12 +15,16 @@ adb server; you use it over the network. You never start an adb server here.
 ## Connect
 
 ```bash
-command -v adb >/dev/null || sudo apt-get install -y adb
+command -v adb >/dev/null || { sudo apt-get update && sudo apt-get install -y adb; }
 export ADB_SERVER_SOCKET=tcp:172.30.0.1:5037
+unset LD_LIBRARY_PATH   # this machine's shell sets one that breaks adb's libraries
 adb devices -l
 ```
 
-Put the `export` in every shell you use adb from (or in `~/.bashrc`).
+Installing adb on this machine is always fine; "do not install anything" from
+the user is about the phone.
+
+Put the `export` and the `unset` in every shell you use adb from (or in `~/.bashrc`).
 
 - A device listed as `device`: ready.
 - `unauthorized` or `offline`: tell the user to unlock the phone and accept the debugging prompt.
@@ -54,11 +58,15 @@ release-like bundle into the APK, or ask the user how they want it served.
 ```bash
 adb logcat -d -t 300 '*:W'                        # recent warnings and errors
 adb logcat -d --pid=$(adb shell pidof -s <applicationId>)
-adb exec-out screencap -p > /workspace/screen.png  # then view the image
+adb shell dumpsys SurfaceFlinger --display-id        # ids of the two displays
+adb exec-out screencap -p -d <display-id> > /workspace/screen.png  # then view the image
 adb shell uiautomator dump /sdcard/ui.xml && adb exec-out cat /sdcard/ui.xml
 adb shell input tap <x> <y>; adb shell input text 'hello'; adb shell input keyevent BACK
 adb shell wm size; adb shell dumpsys window displays | grep -i fold   # screen and fold state
 ```
+
+Always pass `-d` to `screencap`: with two displays, without it adb puts a
+warning line before the PNG and the file is corrupt.
 
 The Z Flip has two displays (cover and main) and a fold state. Check which
 display the app is on before judging a layout, and test both states when the
