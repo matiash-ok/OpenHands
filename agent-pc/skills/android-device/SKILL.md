@@ -26,7 +26,8 @@ the user is about the phone.
 
 Put the `export` and the `unset` in every shell you use adb from (or in `~/.bashrc`).
 
-- A device listed as `device`: ready.
+- A device listed as `device`: ready. If the same phone appears twice (USB and
+  Wi-Fi), pick one for every command: `export ANDROID_SERIAL=<first column>`.
 - `unauthorized` or `offline`: tell the user to unlock the phone and accept the debugging prompt.
 - Empty list, or `cannot connect to daemon`: the phone is not shared right now. Tell
   the user to turn on Wireless debugging on the phone and run
