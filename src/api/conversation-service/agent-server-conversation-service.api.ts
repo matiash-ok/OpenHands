@@ -1,4 +1,8 @@
 import {
+  getContainerIsolation,
+  isDockerWorkspaceMode,
+} from "#/utils/workspace-mode";
+import {
   type ACPEffortOption,
   type ACPModelInfo,
   ConversationSortOrder,
@@ -721,7 +725,7 @@ class AgentServerConversationService {
     const conversationId = randomUUID();
     const resolvedWorkspaceMode =
       workspaceMode ?? (workingDirOverride ? "local_repo" : "new_worktree");
-    const inContainer = resolvedWorkspaceMode === "docker_container";
+    const inContainer = isDockerWorkspaceMode(resolvedWorkspaceMode);
     const { workingDir, hooksProjectDir, isolated, runtimeSelectable } =
       await resolveNewConversationWorkspace({
         conversationId,
@@ -757,6 +761,7 @@ class AgentServerConversationService {
       workingDir,
       hooksProjectDir,
       worktree: !isolated && resolvedWorkspaceMode === "new_worktree",
+      containerIsolation: getContainerIsolation(resolvedWorkspaceMode),
       agentProfileId,
       agentProfileKind,
       llmProfileOverride: agentLlmProfileOverride,
@@ -1141,7 +1146,7 @@ class AgentServerConversationService {
     const metadata = getStoredConversationMetadata(conversationId);
     const projectDir = await resolveConversationHooksProjectDir(
       metadata?.selected_workspace,
-      metadata?.workspace_mode === "docker_container",
+      isDockerWorkspaceMode(metadata?.workspace_mode),
     );
     if (projectDir === null) return emptyHooksResponse();
     return toHooksResponse(await HooksService.fetchWorkspaceHooks(projectDir));

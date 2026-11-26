@@ -1,3 +1,4 @@
+import { isDockerWorkspaceMode } from "#/utils/workspace-mode";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { I18nKey } from "#/i18n/declaration";
@@ -36,8 +37,9 @@ export function SkillInstallRestartBanner({
   // skill sits in a private workspace a new conversation would not get.
   const inContainer =
     !!conversationId &&
-    getStoredConversationMetadata(conversationId)?.workspace_mode ===
-      "docker_container";
+    isDockerWorkspaceMode(
+      getStoredConversationMetadata(conversationId)?.workspace_mode,
+    );
   const hostFolder = conversation?.selected_workspace ?? undefined;
 
   // Local-only: the cloud create path ignores workingDir entirely.

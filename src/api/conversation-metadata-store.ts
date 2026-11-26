@@ -3,7 +3,16 @@ import type { PluginSpec } from "#/api/conversation-service/agent-server-convers
 
 const STORAGE_KEY = "openhands-agent-server-conversation-metadata";
 
-export type WorkspaceMode = "local_repo" | "new_worktree" | "docker_container";
+/**
+ * `docker_container:<isolation>` is a Docker conversation whose container runs
+ * with one of the server's extra isolations (`available_container_isolations`),
+ * such as one that can run its own Docker daemon or a micro-VM.
+ */
+export type WorkspaceMode =
+  | "local_repo"
+  | "new_worktree"
+  | "docker_container"
+  | `docker_container:${string}`;
 
 export interface ConversationMetadata {
   selected_repository: string | null;

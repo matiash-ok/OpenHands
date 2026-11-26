@@ -879,7 +879,10 @@ export function buildConversationLaunchPolicies(settings: Settings) {
  * The Settings → Runtime options a start request carries. Only non-defaults
  * are sent, so servers without the fields see the request they always did.
  */
-function getConversationRuntimeOptions(conversationSettings: SettingsRecord) {
+function getConversationRuntimeOptions(
+  conversationSettings: SettingsRecord,
+  containerIsolation?: string,
+) {
   const {
     worktree_base: base,
     worktree_base_ref: ref,
@@ -899,6 +902,7 @@ function getConversationRuntimeOptions(conversationSettings: SettingsRecord) {
     ...(typeof memory === "string" && memory ? { memory } : {}),
     ...(typeof cpus === "number" ? { cpus } : {}),
     ...(browser === false ? { browser } : {}),
+    ...(containerIsolation ? { isolation: containerIsolation } : {}),
   };
   return {
     ...(Object.keys(worktreeOptions).length > 0
@@ -1160,6 +1164,8 @@ export interface StartConversationOptions {
   parentConversationId?: string;
   workingDir?: string;
   worktree?: boolean;
+  /** Extra container isolation a Docker conversation asks for (`container.isolation`). */
+  containerIsolation?: string;
   encryptedConversationSettings?: Record<string, SettingsValue>;
   customSecrets?: CustomSecretInput[];
   /** The AgentProfile the server builds the agent from (#3727). */
@@ -1315,7 +1321,10 @@ export function buildStartConversationRequest(
       options.executionRuntime === "docker"
         ? false
         : (options.worktree ?? true),
-    ...getConversationRuntimeOptions(conversationSettings),
+    ...getConversationRuntimeOptions(
+      conversationSettings,
+      options.containerIsolation,
+    ),
   };
 
   // Stamp the client source tag so the agent-server can attribute the
@@ -1704,6 +1713,8 @@ export async function buildStartConversationRequestWithEncryptedSettings(options
   /** Workspace root for the hooks lookup, not the per-conversation `workingDir` (#16907). */
   hooksProjectDir?: string | null;
   worktree?: boolean;
+  /** Extra container isolation a Docker conversation asks for (`container.isolation`). */
+  containerIsolation?: string;
   agentProfileId: string;
   agentProfileKind?: AgentKind;
   llmProfileOverride?: string;

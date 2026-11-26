@@ -3,6 +3,7 @@ import { I18nKey } from "#/i18n/declaration";
 import { useQuery } from "@tanstack/react-query";
 import { useActiveBackend } from "#/contexts/active-backend-context";
 import {
+  getContainerIsolations,
   getConversationServerInfo,
   supportsDockerConversations,
   usesIsolatedWorkspace,
@@ -30,6 +31,8 @@ export function useConversationWorkspace() {
     isolated,
     dockerSelectable:
       backend.kind === "local" && supportsDockerConversations(query.data),
+    containerIsolations:
+      backend.kind === "local" ? getContainerIsolations(query.data) : [],
     serverInfoLoading: query.isLoading,
     unsupportedMessage: isolated
       ? t(I18nKey.HOME$ISOLATED_WORKSPACE_NOTICE)

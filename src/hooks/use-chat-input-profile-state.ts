@@ -1,3 +1,4 @@
+import { isDockerWorkspaceMode } from "#/utils/workspace-mode";
 import { useCallback } from "react";
 import { useIsMutating } from "@tanstack/react-query";
 import type { AgentProfileSummary } from "#/api/agent-profiles-service/agent-profiles-service.api";
@@ -79,8 +80,8 @@ export function useChatInputProfileState(): ChatInputProfileState {
       if (conversation?.selected_workspace) {
         variables.workingDir = conversation.selected_workspace;
         variables.workspaceMode = metadata?.workspace_mode ?? "local_repo";
-      } else if (metadata?.workspace_mode === "docker_container") {
-        variables.workspaceMode = "docker_container";
+      } else if (isDockerWorkspaceMode(metadata?.workspace_mode)) {
+        variables.workspaceMode = metadata?.workspace_mode ?? undefined;
       }
       if (metadata?.plugins?.length) {
         variables.plugins = metadata.plugins;

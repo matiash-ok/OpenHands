@@ -37,6 +37,8 @@ export interface AgentServerInfo extends BaseServerInfo {
   runtime_services?: unknown;
   execution_runtime?: "local" | "docker";
   available_conversation_runtimes?: ("local" | "docker")[];
+  /** Isolations a Docker conversation may ask for; `standard` is the default container. */
+  available_container_isolations?: string[];
 }
 
 let cachedAgentServerInfo: AgentServerInfo | null = null;

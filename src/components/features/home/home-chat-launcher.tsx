@@ -39,6 +39,7 @@ import {
   DEFAULT_WORKSPACE_MODE,
   getDefaultWorkspaceMode,
   getWorkspaceModeOptions,
+  isDockerWorkspaceMode,
   readStoredLocalWorkspaceMode,
   writeStoredLocalWorkspaceMode,
 } from "#/utils/workspace-mode";
@@ -148,12 +149,14 @@ export function HomeChatLauncher() {
   const {
     isolated,
     dockerSelectable,
+    containerIsolations,
     serverInfoLoading,
     unsupportedMessage: runtimeWorkspaceMessage,
   } = useConversationWorkspace();
   const workspaceModes = getWorkspaceModeOptions(
     dockerSelectable,
     !isLocal || !!pendingWorkspace,
+    containerIsolations,
   );
   // A remembered mode the server no longer offers falls back, but only once
   // server_info has answered: a pending probe must not silently turn a Docker
@@ -235,7 +238,7 @@ export function HomeChatLauncher() {
         workingDir: pendingWorkspace.path,
         workspaceMode: effectiveWorkspaceMode,
       };
-    } else if (isLocal && effectiveWorkspaceMode === "docker_container") {
+    } else if (isLocal && isDockerWorkspaceMode(effectiveWorkspaceMode)) {
       // No workspace: the container gets its own, so only the runtime is sent.
       variables = { ...variables, workspaceMode: effectiveWorkspaceMode };
     } else if (!isLocal && repositorySelection) {

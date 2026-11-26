@@ -34,6 +34,13 @@ export function supportsDockerConversations(
   return !!info?.available_conversation_runtimes?.includes("docker");
 }
 
+/** Container isolations a Docker start request may name; empty on older servers. */
+export function getContainerIsolations(
+  info: AgentServerInfo | null | undefined,
+): string[] {
+  return info?.available_container_isolations ?? [];
+}
+
 export async function getConversationServerInfo(
   overrides: AgentServerClientOverrides = {},
 ): Promise<AgentServerInfo | null> {

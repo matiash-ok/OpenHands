@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 import type { BackendKind } from "#/api/backend-registry/types";
 import type { WorkspaceMode } from "#/api/conversation-metadata-store";
-import { getWorkspaceModeI18nKey } from "#/utils/workspace-mode";
+import { getWorkspaceModeLabel } from "#/utils/workspace-mode";
 import { cn } from "#/utils/utils";
 import {
   dropdownMenuListClassName,
@@ -32,7 +32,7 @@ export function WorkspaceModeSelector({
   const { t } = useTranslation("openhands");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const label = t(getWorkspaceModeI18nKey(value, backendKind));
+  const label = getWorkspaceModeLabel(value, backendKind, t);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -98,7 +98,7 @@ export function WorkspaceModeSelector({
           )}
         >
           {options.map((option) => {
-            const optionLabel = t(getWorkspaceModeI18nKey(option, backendKind));
+            const optionLabel = getWorkspaceModeLabel(option, backendKind, t);
             return (
               <button
                 key={option}
