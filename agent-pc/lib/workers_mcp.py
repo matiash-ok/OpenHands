@@ -197,9 +197,13 @@ def _profile_id(name: str = "") -> str:
     return active
 
 
-def _status(worker_id: str) -> str:
+def _raw_status(worker_id: str) -> str:
     info = _request("GET", f"/api/conversations/{worker_id}").json()
-    status = str(info.get("execution_status") or "unknown")
+    return str(info.get("execution_status") or "unknown")
+
+
+def _status(worker_id: str) -> str:
+    status = _raw_status(worker_id)
     sent = _load_state().get(worker_id, {}).get("sent", 0)
     if status == "idle" and time.time() - sent < SETTLE_SECONDS:
         return "running"
@@ -353,9 +357,9 @@ def message_worker(worker: str, message: str) -> str:
     status = _status(worker_id)
     if status == "running":
         raise WorkerError(
-            f"{record['name']} is still working. Call wait_pc_worker until it "
-            "finishes, then send the message: a message that lands mid-turn "
-            "can break the worker."
+            f"{record['name']} is still working. Wait for it with "
+            "wait_pc_worker, or use interrupt_pc_worker if it must change "
+            "course now."
         )
     if status in ("error", "stuck"):
         raise WorkerError(
@@ -374,6 +378,65 @@ def message_worker(worker: str, message: str) -> str:
     )
     _mark_sent(worker_id)
     return f"Message delivered to {record['name']}. Call wait_pc_worker for its answer."
+
+
+def interrupt_worker(worker: str, message: str) -> str:
+    """Stop a worker in the middle of its work and give it a new instruction.
+
+    Use it when a worker is still working and must change course: it is going
+    the wrong way, the task changed, or it needs a fact now. The worker stops
+    after the step it is on, keeps its machine and everything it did, reads the
+    message and carries on. Say in the message what to do with the work it had
+    in progress. For a worker that already finished, use message_pc_worker.
+    A "claude-code" worker may finish what it was doing before it acts on the
+    message; if it must stop at once, stop its machine instead.
+    """
+    worker_id, record = _worker(worker)
+    name = record["name"]
+    status = _status(worker_id)
+    if status in ("error", "stuck"):
+        raise WorkerError(
+            f"{name} is in state {status!r} and cannot continue. Stop it and "
+            "start a new worker with the full context."
+        )
+    how = "it was not working"
+    if status == "running":
+        info = _request("GET", f"/api/conversations/{worker_id}").json()
+        # Pausing does not reach an external agent (Claude Code): it reports
+        # "paused" and keeps working. Those are cut instead.
+        external = (info.get("agent") or {}).get("kind") != "Agent"
+        if not external:
+            _request("POST", f"/api/conversations/{worker_id}/pause", timeout=60.0)
+            how = "stopped after its current step"
+            deadline = time.monotonic() + 150.0
+            while _raw_status(worker_id) == "running" and time.monotonic() < deadline:
+                time.sleep(POLL_SECONDS)
+        if external or _raw_status(worker_id) == "running":
+            # A step that does not end (a long command): cut it.
+            _request("POST", f"/api/conversations/{worker_id}/interrupt", timeout=60.0)
+            how = "cut in the middle of a step"
+            deadline = time.monotonic() + 30.0
+            while _raw_status(worker_id) == "running" and time.monotonic() < deadline:
+                time.sleep(POLL_SECONDS)
+            if _raw_status(worker_id) == "running":
+                raise WorkerError(
+                    f"{name} did not stop. Stop its machine with stop_pc_worker."
+                )
+    _request(
+        "POST",
+        f"/api/conversations/{worker_id}/events",
+        json={
+            "role": "user",
+            "content": [{"type": "text", "text": message}],
+            "run": True,
+        },
+        timeout=280.0,
+    )
+    _mark_sent(worker_id)
+    return (
+        f"{name} interrupted ({how}) and given the message. Call wait_pc_worker "
+        "for its answer."
+    )
 
 
 def copy_files(from_worker: str, to_worker: str, path: str = ".") -> str:
@@ -452,6 +515,7 @@ if _key() is not None:
         wait_worker,
         read_worker,
         message_worker,
+        interrupt_worker,
         copy_files,
         stop_worker,
         list_workers,
