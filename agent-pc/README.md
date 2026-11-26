@@ -94,7 +94,7 @@ The coordinator's tools:
 
 | Tool | What it does |
 | --- | --- |
-| `start_pc_worker(name, task, profile)` | New conversation in a new micro-VM. Empty `profile` is a general worker; `reviewer` is the code reviewer |
+| `start_pc_worker(name, task, profile)` | New conversation in a new micro-VM, with the secrets stored in OpenHands that its profile may use. Empty `profile` is a general worker on the API key; `claude-code` is Claude Code on a Claude subscription (needs the `CLAUDE_CODE_OAUTH_TOKEN` secret); `reviewer` is the code reviewer |
 | `wait_pc_worker(name)` | Waits (up to 4 minutes per call) for the worker to finish its turn |
 | `read_pc_worker(name)` | The worker's last answer |
 | `message_pc_worker(name, text)` | Sends the worker a follow-up |
@@ -145,4 +145,5 @@ To add a skill, put its folder (with a `SKILL.md`) in `skills/` and run
 Verified end to end on one host: a coordinator drove a coder and a reviewer
 through two rounds without human relaying. Not yet exercised: the `reviewer`
 profile with a review skill inside a micro-VM, the phone sharing with a real
-device, and ACP agents (Claude Code) as workers.
+device, and a full coordinator run with `claude-code` workers (a single
+Claude Code conversation in a micro-VM does work).

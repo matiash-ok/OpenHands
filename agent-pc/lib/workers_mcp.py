@@ -28,6 +28,7 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastmcp import FastMCP
@@ -83,6 +84,27 @@ def _request(method: str, path: str, **kwargs: Any) -> httpx.Response:
             detail = response.text[:300]
         raise WorkerError(f"Server answered {response.status_code}: {detail}")
     return response
+
+
+def _secrets(profile_id: str) -> dict[str, dict[str, Any]]:
+    """References to the user's stored secrets that the profile may use.
+
+    The server resolves each reference itself when it starts the worker, as it
+    does for a conversation started from the web interface; no value passes
+    through this process or reaches the coordinator.
+    """
+    listing = _request(
+        "GET", "/api/settings/secrets", params={"agent_profile_id": profile_id}
+    ).json()
+    headers = {"X-Session-API-Key": _key()}
+    return {
+        item["name"]: {
+            "kind": "LookupSecret",
+            "url": "/api/settings/secrets/" + quote(item["name"], safe=""),
+            "headers": headers,
+        }
+        for item in listing.get("secrets", [])
+    }
 
 
 def _load_state() -> dict[str, dict[str, Any]]:
@@ -200,7 +222,8 @@ def start_worker(name: str, task: str, profile: str = "") -> str:
       see this conversation or the other workers, so include everything it needs.
     profile: which kind of agent it is. Leave empty for a general worker (it
       codes, runs and tests). Use "reviewer" for a read-only code reviewer that
-      follows the review-pr skill.
+      follows the review-pr skill, or "claude-code" for a coder that runs
+      Claude Code on the user's Claude subscription.
     It starts working at once. Use wait_pc_worker to get its answer.
     """
     name = name.strip() or "worker"
@@ -221,9 +244,11 @@ def start_worker(name: str, task: str, profile: str = "") -> str:
             f"{len(running)} workers already have a running machine (limit "
             f"{MAX_WORKERS}). Stop one with stop_pc_worker first."
         )
+    profile_id = _profile_id(profile)
     body: dict[str, Any] = {
         "conversation_runtime": "docker",
-        "agent_profile_id": _profile_id(profile),
+        "agent_profile_id": profile_id,
+        "secrets": _secrets(profile_id),
         "workspace": {"working_dir": "/workspace"},
         "tags": {WORKER_TAG: name[:64]},
         "initial_message": {
