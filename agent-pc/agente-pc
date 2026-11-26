@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# OpenHands central en un host con Docker: una micro-VM por agente.
+# Uso: sudo agente-pc [start|stop|logs|key|status|configurar|telefono on [IP:PUERTO]/off|quitar]
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo "Correr con sudo"; exit 1; }
+NAME=agente-pc
+IMAGE=agent-pc/agent-canvas:latest
+ROOT=/srv/agente-pc
+H=$ROOT/home            # misma ruta adentro y afuera: Docker monta estas carpetas en cada micro-VM
+BR=br-agentes
+LIB=$ROOT/lib           # herramientas del coordinador (workers_mcp.py, etc.)
+PORTS=8100,8101,18100,18101
+
+firewall_off() {
+  for t in iptables ip6tables; do
+    $t -D INPUT -j AGENTE-PC-IN 2>/dev/null || true
+    $t -F AGENTE-PC-IN 2>/dev/null || true; $t -X AGENTE-PC-IN 2>/dev/null || true
+  done
+  iptables -D DOCKER-USER -j AGENTE-PC-FWD 2>/dev/null || true
+  iptables -F AGENTE-PC-FWD 2>/dev/null || true; iptables -X AGENTE-PC-FWD 2>/dev/null || true
+}
+firewall_on() {
+  firewall_off
+  for t in iptables ip6tables; do
+    $t -N AGENTE-PC-IN
+    # El Canvas escucha en todas las interfaces: solo se entra por localhost (tunel ssh).
+    $t -A AGENTE-PC-IN ! -i lo -p tcp -m multiport --dports "$PORTS" -j DROP
+    $t -I INPUT 1 -j AGENTE-PC-IN
+  done
+  # Las micro-VM no pueden hablarle al host...
+  iptables -A AGENTE-PC-IN -i "$BR" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  # ...salvo al servidor adb, y solo mientras el telefono este compartido.
+  if [ -e "$ROOT/telefono.on" ]; then
+    iptables -A AGENTE-PC-IN -i "$BR" -d 172.30.0.1 -p tcp --dport 5037 -j ACCEPT
+  fi
+  iptables -A AGENTE-PC-IN -i "$BR" -j DROP
+  # ...ni a la LAN, la tailnet u otros contenedores. Internet si.
+  iptables -N AGENTE-PC-FWD
+  iptables -A AGENTE-PC-FWD -i "$BR" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16; do
+    iptables -A AGENTE-PC-FWD -i "$BR" -d "$net" -j DROP
+  done
+  # La opcion "Docker" comun usa la red por defecto (docker0): mismo encierro,
+  # salvo el DNS del host que esa red necesita.
+  iptables -A AGENTE-PC-IN -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  iptables -A AGENTE-PC-IN -i docker0 -d 172.17.0.1 -p udp --dport 53 -j ACCEPT
+  iptables -A AGENTE-PC-IN -i docker0 -d 172.17.0.1 -p tcp --dport 53 -j ACCEPT
+  iptables -A AGENTE-PC-IN -i docker0 -j DROP
+  iptables -A AGENTE-PC-FWD -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16; do
+    iptables -A AGENTE-PC-FWD -i docker0 -d "$net" -j DROP
+  done
+  iptables -I DOCKER-USER 1 -j AGENTE-PC-FWD
+  # El servidor adb (telefono) escucha en todas las interfaces: de afuera, nadie.
+  # (Lo de br-agentes ya se resolvio arriba, asi que esto no lo alcanza.)
+  for t in iptables ip6tables; do
+    $t -A AGENTE-PC-IN ! -i lo -p tcp --dport 5037 -j DROP
+  done
+}
+
+case "${1:-start}" in
+  start)
+    install -d -o 1000 -g 1000 "$ROOT" "$H" "$H/.openhands" "$ROOT/projects"
+    # Skills para todos los agentes: lo que haya en $ROOT/skills aparece en cada
+    # micro-VM como skill de usuario (~/.agents/skills), solo lectura.
+    install -d -m 755 "$ROOT/skills"
+    # DNS publico directo: el DNS interno de Docker no funciona dentro de una micro-VM.
+    printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > "$ROOT/resolv.conf"
+    firewall_on
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    VM_ARGS='["--init","--cap-add","ALL","--security-opt","seccomp=unconfined","--security-opt","apparmor=unconfined","--security-opt","systempaths=unconfined","--network","agentes","-v","'"$ROOT"'/resolv.conf:/etc/resolv.conf:ro","-v","'"$ROOT"'/skills:/var/openhands/.openhands/.agents/skills:ro"]'
+    # "Local" existe solo para el coordinador (perfil "coordinator": sin terminal
+    # ni archivos, solo arranca y dirige workers). El servidor rechaza Local con
+    # cualquier otro perfil (OH_CONVERSATION_LOCAL_AGENT_PROFILES), porque Local
+    # corre dentro de este contenedor, que tiene el Docker del host. Todo lo
+    # demas va en micro-VM, que es el modo por defecto.
+    docker run -d --name "$NAME" --restart no \
+      --user 1000:1000 --group-add "$(getent group docker | cut -d: -f3)" \
+      --network host \
+      -e HOME="$H" -e PORT=8100 -e AGENT_SERVER_PORT=18100 -e AUTOMATION_PORT=18101 -e VSCODE_PORT=8101 \
+      -e OH_CONVERSATION_RUNTIME=docker -e OH_CONVERSATION_RUNTIME_SELECTABLE=1 \
+      -e OH_CONVERSATION_LOCAL_AGENT_PROFILES='["coordinator"]' \
+      -e OH_CONVERSATION_IMAGE=agente-pc:latest \
+      -e OH_CONVERSATION_CONTAINER_ISOLATIONS='[{"name":"vm","runtime":"kata","extra_args":'"$VM_ARGS"',"image":"agente-pc:latest"}]' \
+      -e OH_CONVERSATION_CONTAINER_ISOLATION=vm \
+      -e OH_CONVERSATION_CONTAINER_PIDS_LIMIT=8192 \
+      -e OH_CONVERSATION_CONTAINER_MEMORY=4g -e OH_CONVERSATION_CONTAINER_CPUS=4 \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v "$H:$H" -v "$H/.openhands:/home/openhands/.openhands" \
+      -v "$ROOT/projects:/projects" -v "$LIB:$LIB:ro" \
+      "$IMAGE" >/dev/null
+    echo "Arrancando. Desde la laptop: ssh -L 8100:127.0.0.1:8100 <este-host>  ->  http://localhost:8100/canvas"
+    echo "Clave: sudo agente-pc key" ;;
+  stop)
+    rm -f "$ROOT/telefono.on"; systemctl stop agente-pc-adb 2>/dev/null || true
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    ids=$(docker ps -aq --filter name=agent-server-conversation --filter network=agentes)
+    [[ -z "$ids" ]] || docker rm -f $ids >/dev/null 2>&1 || docker rm -f $ids >/dev/null
+    firewall_off; echo "Detenido." ;;
+  configurar)
+    # Registra las herramientas del coordinador y los perfiles "coordinator" y "worker".
+    python3 "$LIB/configurar.py" http://127.0.0.1:18100 \
+      "$H/.openhands/agent-canvas/api-key.txt" "$LIB/workers_mcp.py" "$LIB/coordinator_prompt.md" ;;
+  telefono)
+    # Comparte con los agentes el telefono Android conectado al host (USB, o
+    # ya emparejado por Wi-Fi con "adb pair"). Los agentes usan el servidor adb de
+    # aca por red; pueden instalar y manejar apps en el telefono mientras este "on".
+    case "${2:-status}" in
+      on)
+        # El servidor corre como tu usuario: usa las claves con las que ya
+        # emparejaste el telefono (~/.android), asi no hay que autorizar de nuevo.
+        U=${SUDO_USER:-root}; UH=$(getent passwd "$U" | cut -d: -f6)
+        asu() { sudo -u "$U" env HOME="$UH" "$@"; }
+        asu adb kill-server >/dev/null 2>&1 || true
+        systemctl stop agente-pc-adb 2>/dev/null || true
+        systemd-run --quiet --unit agente-pc-adb --collect --uid="$U" --setenv=HOME="$UH" \
+          adb -a -P 5037 nodaemon server
+        touch "$ROOT/telefono.on"; firewall_on
+        sleep 2
+        # Por Wi-Fi: "telefono on IP:PUERTO" (lo que muestra Depuracion inalambrica).
+        [ -z "${3:-}" ] || asu adb connect "$3"
+        for _ in 1 2 3 4 5 6; do asu adb devices -l 2>/dev/null | grep -q " device " && break; sleep 1; done
+        asu adb devices -l
+        echo "Lista vacia: activa Depuracion inalambrica en el telefono y corre: sudo agente-pc telefono on IP:PUERTO"
+        echo "unauthorized: desbloquea el telefono y acepta la depuracion." ;;
+      off)
+        rm -f "$ROOT/telefono.on"; systemctl stop agente-pc-adb 2>/dev/null || true
+        firewall_on; echo "Telefono ya no compartido." ;;
+      *) if [ -e "$ROOT/telefono.on" ]; then echo "compartido"; ADB_SERVER_SOCKET=tcp:127.0.0.1:5037 adb devices -l; else echo "no compartido"; fi ;;
+    esac ;;
+  logs)   docker logs --tail 100 -f "$NAME" ;;
+  key)    cat "$H/.openhands/agent-canvas/api-key.txt"; echo ;;
+  status) docker ps --filter name="$NAME" --filter name=agent-server-conversation --format '{{.Names}}  {{.Status}}'; free -g | sed -n 2p ;;
+  quitar)
+    "$0" stop
+    docker network rm agentes >/dev/null 2>&1 || true
+    echo "Quedan: /srv/agente-pc (datos), /opt/kata, el runtime kata en /etc/docker/daemon.json y las imagenes." ;;
+  *) echo "Uso: sudo agente-pc [start|stop|logs|key|status|configurar|telefono on/off|quitar]" >&2; exit 2 ;;
+esac

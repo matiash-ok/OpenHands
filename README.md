@@ -222,6 +222,13 @@ Agent Canvas is part of a multi-repository OpenHands system. Changes should go t
 
 The Agent Server API is implemented by the SDK and consumed through the TypeScript client by Agent Canvas. The automation service decides when work runs and dispatches conversations to the Agent Server/SDK, which decides what runs. See [`AGENTS.md`](./AGENTS.md) for contributor-specific boundaries and the required custom code-review guide.
 
+## A machine per agent (this fork)
+
+This fork adds a per-conversation isolation choice (Docker, Sysbox or Micro-VM)
+and, in [`agent-pc/`](agent-pc/README.md), a setup where a coordinator
+delegates to workers and reviewers that each run in their own micro-VM with
+`sudo` and Docker.
+
 ## More documentation
 
 - [Documentation index](./docs/README.md)

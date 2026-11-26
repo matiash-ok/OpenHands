@@ -1,0 +1,30 @@
+#!/bin/sh
+# Arranca el Docker propio de esta PC de agente (queda corriendo en segundo plano). Uso: docker-up
+# Sirve en los dos tipos de PC: contenedor Sysbox y micro-VM (Kata). En la micro-VM además prepara
+# lo que Sysbox hace solo: cgroups escribibles y delegados, y un disco propio para /var/lib/docker.
+if docker info >/dev/null 2>&1; then echo "docker: ya estaba corriendo"; exit 0; fi
+if grep -q "^[^ ]* / virtiofs" /proc/mounts; then
+    sudo env DISCO="${AGENTE_DOCKER_DISCO:-30G}" sh -c '
+        mount -o remount,rw /sys/fs/cgroup 2>/dev/null
+        mount -o remount,rw /proc/sys 2>/dev/null
+        cg=/sys/fs/cgroup
+        if ! grep -qw memory $cg/cgroup.subtree_control; then
+            mkdir -p $cg/init
+            for p in $(cat $cg/cgroup.procs); do echo $p > $cg/init/cgroup.procs 2>/dev/null; done
+            for c in $(cat $cg/cgroup.controllers); do echo "+$c" > $cg/cgroup.subtree_control 2>/dev/null; done
+        fi
+        # overlayfs no funciona sobre el disco compartido de la micro-VM: Docker va a un disco propio
+        # (archivo que crece con el uso); si no se puede, a memoria.
+        if ! mountpoint -q /var/lib/docker; then
+            mkdir -p /var/lib/docker; img=/var/lib/agente-docker.img
+            [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null
+            for i in 0 1 2 3; do [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i 2>/dev/null; done
+            [ -f $img ] || { truncate -s "$DISCO" $img && mkfs.ext4 -q -F $img; } 2>/dev/null
+            mount -o loop $img /var/lib/docker 2>/dev/null \
+                || { echo "docker-up: sin disco propio, uso memoria (3 GB)" >&2; mount -t tmpfs -o size=3g,exec tmpfs /var/lib/docker; }
+        fi'
+fi
+G=$(id -gn)
+sudo sh -c "nohup dockerd -G $G >/var/log/dockerd.log 2>&1 &"
+for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && { echo "docker: listo"; exit 0; }; sleep 1; done
+echo "docker: no arranco, ver /var/log/dockerd.log" >&2; exit 1
