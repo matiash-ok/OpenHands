@@ -107,6 +107,49 @@ def _secrets(profile_id: str) -> dict[str, dict[str, Any]]:
     }
 
 
+# Not copied between workers: each workspace keeps its own git history, and
+# installed dependencies and caches are rebuilt by whoever needs them (a
+# virtualenv does not survive a move anyway).
+NOT_COPIED = frozenset(
+    {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+)
+
+
+def _copy_tree(src: Path, dst: Path) -> int:
+    """Copy ``src`` over ``dst``, replacing what is there; returns files copied."""
+    count = 0
+    for root, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if d not in NOT_COPIED]
+        here = Path(root)
+        out = dst / here.relative_to(src)
+        if out.is_symlink() or (out.exists() and not out.is_dir()):
+            out.unlink()
+        out.mkdir(parents=True, exist_ok=True)
+        # os.walk lists a symlink to a directory under dirs but does not enter it.
+        links = [d for d in dirs if (here / d).is_symlink()]
+        dirs[:] = [d for d in dirs if d not in links]
+        for name in [*files, *links]:
+            if name in NOT_COPIED:
+                continue
+            source, target = here / name, out / name
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            shutil.copy2(source, target, follow_symlinks=False)
+            count += 1
+    return count
+
+
 def _load_state() -> dict[str, dict[str, Any]]:
     try:
         return json.loads(STATE_FILE.read_text())
@@ -327,7 +370,9 @@ def copy_files(from_worker: str, to_worker: str, path: str = ".") -> str:
     Workers do not share a disk: this is how one hands its work to another.
     path: a file or folder relative to /workspace (default: everything). It lands
     at the same relative path in the other worker, replacing files of the same name.
-    Tell the receiving worker where the files are.
+    Tell the receiving worker where the files are, and that git history,
+    installed dependencies (.venv, node_modules) and caches are not copied: it
+    installs what it needs.
     """
     source_id, source = _worker(from_worker)
     target_id, target = _worker(to_worker)
@@ -344,16 +389,7 @@ def copy_files(from_worker: str, to_worker: str, path: str = ".") -> str:
     try:
         if src.is_dir():
             # Each workspace is a git repository of its own: its history stays.
-            shutil.copytree(
-                src,
-                dst,
-                symlinks=True,
-                dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns(".git"),
-            )
-            count = sum(
-                1 for p in src.rglob("*") if p.is_file() and ".git" not in p.parts
-            )
+            count = _copy_tree(src, dst)
         else:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)

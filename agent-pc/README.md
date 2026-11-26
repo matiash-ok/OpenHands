@@ -98,7 +98,7 @@ The coordinator's tools:
 | `wait_pc_worker(name)` | Waits (up to 4 minutes per call) for the worker to finish its turn |
 | `read_pc_worker(name)` | The worker's last answer |
 | `message_pc_worker(name, text)` | Sends the worker a follow-up |
-| `copy_files(from, to)` | Copies one worker's workspace into another's (without `.git`) |
+| `copy_files(from, to)` | Copies one worker's workspace into another's (without `.git`, installed dependencies or caches) |
 | `stop_pc_worker(name)` | Stops the machine and frees its memory |
 | `list_pc_workers()` | Workers of this coordinator and their state |
 
