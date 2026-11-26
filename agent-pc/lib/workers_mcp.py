@@ -210,6 +210,21 @@ def _status(worker_id: str) -> str:
     return status
 
 
+def _power_on(worker_id: str) -> bool:
+    """Start a stopped worker's machine again; True when it had to."""
+    if _machine_running(worker_id):
+        return False
+    _request(
+        "POST", f"/api/conversations/{worker_id}/runtime/reprovision", timeout=280.0
+    )
+    deadline = time.monotonic() + 120.0
+    while not _machine_running(worker_id) and time.monotonic() < deadline:
+        time.sleep(POLL_SECONDS)
+    if not _machine_running(worker_id):
+        raise WorkerError("The worker's machine did not start again.")
+    return True
+
+
 def _mark_sent(worker_id: str, **record: Any) -> None:
     state = _load_state()
     state[worker_id] = {**state.get(worker_id, {}), **record, "sent": time.time()}
@@ -366,6 +381,7 @@ def message_worker(worker: str, message: str) -> str:
             f"{record['name']} is in state {status!r} and cannot continue. "
             "Stop it and start a new worker with the full context."
         )
+    woken = _power_on(worker_id)
     _request(
         "POST",
         f"/api/conversations/{worker_id}/events",
@@ -377,7 +393,17 @@ def message_worker(worker: str, message: str) -> str:
         timeout=280.0,
     )
     _mark_sent(worker_id)
-    return f"Message delivered to {record['name']}. Call wait_pc_worker for its answer."
+    note = (
+        " Its machine was off and is on again: it remembers the conversation "
+        "and its files, but nothing is running (it must start Docker and its "
+        "servers again)."
+        if woken
+        else ""
+    )
+    return (
+        f"Message delivered to {record['name']}.{note} Call wait_pc_worker for "
+        "its answer."
+    )
 
 
 def interrupt_worker(worker: str, message: str) -> str:
@@ -422,6 +448,7 @@ def interrupt_worker(worker: str, message: str) -> str:
                 raise WorkerError(
                     f"{name} did not stop. Stop its machine with stop_pc_worker."
                 )
+    _power_on(worker_id)
     _request(
         "POST",
         f"/api/conversations/{worker_id}/events",
@@ -478,10 +505,11 @@ def copy_files(from_worker: str, to_worker: str, path: str = ".") -> str:
 
 
 def stop_worker(worker: str) -> str:
-    """Shut down a worker's machine to free memory. Its conversation is kept.
+    """Shut down a worker's machine to free memory, or to stop it at once.
 
-    Everything running inside (Docker containers, servers) is lost; files in
-    /workspace are kept. Stop workers you no longer need.
+    The worker keeps its conversation (it remembers everything) and the files
+    in /workspace. What was running inside (Docker, servers, an unfinished
+    command) is lost. message_pc_worker turns the machine on again.
     """
     worker_id, record = _worker(worker)
     for _ in range(3):
