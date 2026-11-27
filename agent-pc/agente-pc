@@ -61,6 +61,13 @@ firewall_on() {
 case "${1:-start}" in
   start)
     install -d -o 1000 -g 1000 "$ROOT" "$H" "$H/.openhands" "$ROOT/projects"
+    # Workspaces: OpenHands ve la carpeta de proyectos como /projects, y para
+    # montar un workspace en la micro-VM le pasa esa ruta al Docker del host.
+    # El enlace hace que la misma ruta exista aca afuera.
+    if [ ! -e /projects ] && [ ! -L /projects ]; then ln -s "$ROOT/projects" /projects
+    elif [ "$(readlink -f /projects)" != "$(readlink -f "$ROOT/projects")" ]; then
+      echo "!! /projects ya existe y no apunta a $ROOT/projects: los workspaces no van a montarse en las micro-VM." >&2
+    fi
     # Skills para todos los agentes: lo que haya en $ROOT/skills aparece en cada
     # micro-VM como skill de usuario (~/.agents/skills), solo lectura.
     install -d -m 755 "$ROOT/skills"

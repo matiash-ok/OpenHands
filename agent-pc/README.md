@@ -106,6 +106,15 @@ The coordinator's tools:
 You can also start a `worker` or `reviewer` conversation yourself: choose
 **Micro-VM** as the workspace.
 
+## Workspaces
+
+Put a repository in `/srv/agente-pc/projects/<name>` on the host and register
+it in OpenHands as the workspace `/projects/<name>`. A conversation started on
+that workspace in **Micro-VM** mode gets the folder mounted as `/workspace`:
+the agent works on the real repository, and its changes stay on the host
+across conversations and machine restarts. (`agente-pc start` links `/projects`
+on the host to that folder; Docker needs the same path on both sides.)
+
 ## Safety model
 
 - **Local mode is for the coordinator only.** A Local conversation runs
