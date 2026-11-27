@@ -115,6 +115,12 @@ the agent works on the real repository, and its changes stay on the host
 across conversations and machine restarts. (`agente-pc start` links `/projects`
 on the host to that folder; Docker needs the same path on both sides.)
 
+The coordinator does not take a workspace itself: start it in **Local** mode
+(in a machine of its own it has no worker tools and says so). Name the project
+in your request and it starts its workers on it
+(`start_pc_worker(..., project="<name>")`, `list_projects()`). Only one machine
+at a time gets a project, so coder and reviewer take turns on it.
+
 ## Safety model
 
 - **Local mode is for the coordinator only.** A Local conversation runs

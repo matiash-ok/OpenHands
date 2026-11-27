@@ -260,7 +260,20 @@ def _report(worker_id: str, name: str, status: str) -> str:
 
 
 def _workspace(worker_id: str) -> Path:
+    project = _load_state().get(worker_id, {}).get("project")
+    if project:
+        return Path(project)
     return RUNTIME_DATA / worker_id.replace("-", "") / "workspace"
+
+
+def _projects() -> dict[str, str]:
+    """The user's registered workspaces: name -> folder on the server."""
+    data = _request("GET", "/api/workspaces").json()
+    return {
+        str(w["name"]): str(w["path"])
+        for w in data.get("workspaces", [])
+        if w.get("name") and w.get("path")
+    }
 
 
 def _guard(fn):
@@ -276,7 +289,7 @@ def _guard(fn):
     return wrapper
 
 
-def start_worker(name: str, task: str, profile: str = "") -> str:
+def start_worker(name: str, task: str, profile: str = "", project: str = "") -> str:
     """Start a new worker: another agent in a machine of its own, with Docker.
 
     name: a short role name you will refer to it by, e.g. "coder" or "reviewer".
@@ -286,6 +299,11 @@ def start_worker(name: str, task: str, profile: str = "") -> str:
       codes, runs and tests). Use "reviewer" for a read-only code reviewer that
       follows the review-pr skill, or "claude-code" for a coder that runs
       Claude Code on the user's Claude subscription.
+    project: the name of one of the user's projects (see list_projects). The
+      worker then gets that project's repository as its /workspace, and what it
+      changes there stays in the project. Leave empty for an empty /workspace.
+      Only one worker at a time can have a project: stop the first one's
+      machine before starting another on the same project.
     It starts working at once. Use wait_pc_worker to get its answer.
     """
     name = name.strip() or "worker"
@@ -306,12 +324,29 @@ def start_worker(name: str, task: str, profile: str = "") -> str:
             f"{len(running)} workers already have a running machine (limit "
             f"{MAX_WORKERS}). Stop one with stop_pc_worker first."
         )
+    working_dir = "/workspace"
+    project = project.strip()
+    if project:
+        projects = _projects()
+        if project not in projects:
+            raise WorkerError(
+                f"No project {project!r}. The projects are: "
+                f"{', '.join(sorted(projects)) or 'none'}."
+            )
+        working_dir = projects[project]
+        for wid in running:
+            if state[wid].get("project") == working_dir:
+                raise WorkerError(
+                    f"Worker {state[wid].get('name')} has project {project} and "
+                    "its machine is on. Stop it first: two machines must not "
+                    "write to the same files."
+                )
     profile_id = _profile_id(profile)
     body: dict[str, Any] = {
         "conversation_runtime": "docker",
         "agent_profile_id": profile_id,
         "secrets": _secrets(profile_id),
-        "workspace": {"working_dir": "/workspace"},
+        "workspace": {"working_dir": working_dir},
         "tags": {WORKER_TAG: name[:64]},
         "initial_message": {
             "role": "user",
@@ -330,9 +365,10 @@ def start_worker(name: str, task: str, profile: str = "") -> str:
     except WorkerError:
         pass  # the title is cosmetic
     _save_state(state)  # keeps a freed name freed
-    _mark_sent(worker_id, name=name)
+    _mark_sent(worker_id, name=name, project=working_dir if project else "")
+    where = f", with project {project} as its /workspace" if project else ""
     return (
-        f"Started worker {name} ({worker_id}) in its own machine. "
+        f"Started worker {name} ({worker_id}) in its own machine{where}. "
         "It is working on the task. Call wait_pc_worker to get its answer."
     )
 
@@ -521,6 +557,18 @@ def stop_worker(worker: str) -> str:
     raise WorkerError(f"{record['name']}'s machine is still on after three tries.")
 
 
+def list_projects() -> str:
+    """List the user's projects: repositories kept on the server.
+
+    Pass a name as `project` to start_pc_worker to give a worker that
+    repository as its /workspace.
+    """
+    projects = _projects()
+    if not projects:
+        return "No projects are registered."
+    return "\n".join(f"{name}: {path}" for name, path in sorted(projects.items()))
+
+
 def list_workers() -> str:
     """List the workers started so far, with their status."""
     state = _load_state()
@@ -547,6 +595,7 @@ if _key() is not None:
         copy_files,
         stop_worker,
         list_workers,
+        list_projects,
     ):
         # Named apart from OpenHands' own project tools (list_workers, ...).
         mcp.tool(_guard(tool), name=tool.__name__.replace("worker", "pc_worker"))
