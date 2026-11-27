@@ -21,5 +21,17 @@ install -d -o 1000 -g 1000 /srv/agente-pc/home/.agents /srv/agente-pc/home/.agen
 cp -a "$DIR/skills/." /srv/agente-pc/home/.agents/skills/
 chown -R 1000:1000 /srv/agente-pc/home/.agents
 chown -R root:root /srv/agente-pc/skills
+# La imagen de las maquinas de los agentes: si falta (la borro una limpieza de
+# Docker, por ejemplo), se arma de nuevo.
+if ! docker image inspect agente-pc:latest >/dev/null 2>&1; then
+  echo "== Falta la imagen agente-pc:latest; armandola de nuevo"
+  docker build -t agente-pc:latest "$DIR/imagen"
+fi
 agente-pc start
 agente-pc configurar
+echo "== Prueba: arrancar una maquina de agente"
+if docker run --rm --runtime kata --network agentes --entrypoint uname agente-pc:latest -r; then
+  echo "OK: las maquinas de los agentes arrancan."
+else
+  echo "!! No arranca una maquina de agente. Copia el error de arriba."
+fi
